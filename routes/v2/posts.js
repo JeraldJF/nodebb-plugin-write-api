@@ -76,15 +76,49 @@ module.exports = function () {
 		});
 
 	app.route('/:pid/bookmark')
-		.post(apiMiddleware.requireUser, function (req, res) {
-			posts.bookmark(req.params.pid, req.user.uid, function (err) {
-				errorHandler.handle(err, res);
-			});
+		.post(apiMiddleware.requireUser, async function (req, res) {
+			try {
+				// Ensure user context
+				const uid = req.user?.uid || req.uid;
+				if (!uid || uid <= 0) {
+					return errorHandler.respond(401, res);
+				}
+				
+				// Check if post exists and user can access it
+				const topics = require.main.require('./src/topics');
+				const privileges = require.main.require('./src/privileges');
+				
+				const postData = await posts.getPostFields(req.params.pid, ['pid', 'tid']);
+				if (!postData || !postData.pid) {
+					return errorHandler.respond(404, res);
+				}
+				
+				// Check topic/category permissions
+				const topicData = await topics.getTopicFields(postData.tid, ['cid']);
+				const canRead = await privileges.categories.can('topics:read', topicData.cid, uid);
+				if (!canRead) {
+					return errorHandler.respond(403, res);
+				}
+				
+				// Perform bookmark
+				await posts.bookmark(req.params.pid, uid);
+				return res.json({ status: 'ok', bookmarked: true });
+			} catch (error) {
+				errorHandler.handle(error, res);
+			}
 		})
-		.delete(apiMiddleware.requireUser, apiMiddleware.validatePid, function (req, res) {
-			posts.unbookmark(req.params.pid, req.user.uid, function (err) {
-				errorHandler.handle(err, res);
-			});
+		.delete(apiMiddleware.requireUser, async function (req, res) {
+			try {
+				const uid = req.user?.uid || req.uid;
+				if (!uid || uid <= 0) {
+					return errorHandler.respond(401, res);
+				}
+				
+				await posts.unbookmark(req.params.pid, uid);
+				return res.json({ status: 'ok', bookmarked: false });
+			} catch (error) {
+				errorHandler.handle(error, res);
+			}
 		});
 
 	return app;
